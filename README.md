@@ -42,5 +42,3 @@ go build -o eventbus-server cmd/server/main.go
 ```
 
 This will create an executable named `eventbus-server` in your current directory.
-
-# eventbus
