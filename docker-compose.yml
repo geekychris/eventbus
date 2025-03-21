@@ -1,0 +1,35 @@
+version: '3'
+services:
+  eventbus1:
+    build: .
+    ports:
+      - "50051:50051"
+    command: -id instance1 -listen 0.0.0.0:50051
+    networks:
+      - eventbus-net
+
+  eventbus2:
+    build: .
+    ports:
+      - "50052:50051"
+    command: -id instance2 -listen 0.0.0.0:50051 -peers eventbus1:50051
+    depends_on:
+      - eventbus1
+    networks:
+      - eventbus-net
+
+  eventbus3:
+    build: .
+    ports:
+      - "50053:50051"
+    command: -id instance3 -listen 0.0.0.0:50051 -peers eventbus1:50051,eventbus2:50051
+    depends_on:
+      - eventbus1
+      - eventbus2
+    networks:
+      - eventbus-net
+
+networks:
+  eventbus-net:
+    driver: bridge
+
