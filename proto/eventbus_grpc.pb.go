@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EventBus_Publish_FullMethodName   = "/eventbus.EventBus/Publish"
-	EventBus_Subscribe_FullMethodName = "/eventbus.EventBus/Subscribe"
+	EventBus_Publish_FullMethodName        = "/eventbus.EventBus/Publish"
+	EventBus_Subscribe_FullMethodName      = "/eventbus.EventBus/Subscribe"
+	EventBus_ReplicateEvent_FullMethodName = "/eventbus.EventBus/ReplicateEvent"
 )
 
 // EventBusClient is the client API for EventBus service.
@@ -33,6 +34,8 @@ type EventBusClient interface {
 	Publish(ctx context.Context, in *PublishMessage, opts ...grpc.CallOption) (*PublishResponse, error)
 	// Subscribes to topics
 	Subscribe(ctx context.Context, in *SubscriptionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
+	// Server-to-server message replication
+	ReplicateEvent(ctx context.Context, in *PeerMessage, opts ...grpc.CallOption) (*PeerResponse, error)
 }
 
 type eventBusClient struct {
@@ -72,6 +75,16 @@ func (c *eventBusClient) Subscribe(ctx context.Context, in *SubscriptionRequest,
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EventBus_SubscribeClient = grpc.ServerStreamingClient[Event]
 
+func (c *eventBusClient) ReplicateEvent(ctx context.Context, in *PeerMessage, opts ...grpc.CallOption) (*PeerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerResponse)
+	err := c.cc.Invoke(ctx, EventBus_ReplicateEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EventBusServer is the server API for EventBus service.
 // All implementations must embed UnimplementedEventBusServer
 // for forward compatibility.
@@ -82,6 +95,8 @@ type EventBusServer interface {
 	Publish(context.Context, *PublishMessage) (*PublishResponse, error)
 	// Subscribes to topics
 	Subscribe(*SubscriptionRequest, grpc.ServerStreamingServer[Event]) error
+	// Server-to-server message replication
+	ReplicateEvent(context.Context, *PeerMessage) (*PeerResponse, error)
 	mustEmbedUnimplementedEventBusServer()
 }
 
@@ -97,6 +112,9 @@ func (UnimplementedEventBusServer) Publish(context.Context, *PublishMessage) (*P
 }
 func (UnimplementedEventBusServer) Subscribe(*SubscriptionRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (UnimplementedEventBusServer) ReplicateEvent(context.Context, *PeerMessage) (*PeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReplicateEvent not implemented")
 }
 func (UnimplementedEventBusServer) mustEmbedUnimplementedEventBusServer() {}
 func (UnimplementedEventBusServer) testEmbeddedByValue()                  {}
@@ -148,6 +166,24 @@ func _EventBus_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) erro
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EventBus_SubscribeServer = grpc.ServerStreamingServer[Event]
 
+func _EventBus_ReplicateEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventBusServer).ReplicateEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventBus_ReplicateEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventBusServer).ReplicateEvent(ctx, req.(*PeerMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EventBus_ServiceDesc is the grpc.ServiceDesc for EventBus service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -158,6 +194,10 @@ var EventBus_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Publish",
 			Handler:    _EventBus_Publish_Handler,
+		},
+		{
+			MethodName: "ReplicateEvent",
+			Handler:    _EventBus_ReplicateEvent_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

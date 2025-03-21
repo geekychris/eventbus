@@ -14,6 +14,8 @@ message PublishMessage {
   string client_id = 3;
   string message = 4;
   int64 timestamp = 5;
+  string message_id = 6; // Unique ID for tracking messages across servers
+  string origin_server_id = 7; // ID of originating server
 }
 
 // Message type for subscription requests
@@ -43,6 +45,24 @@ message Event {
   int64 timestamp = 5;
 }
 
+// Message for server-to-server communication
+message PeerMessage {
+  string topic = 1;
+  string sub_topic = 2;
+  string client_id = 3;
+  string message = 4;
+  int64 timestamp = 5;
+  string message_id = 6; // Unique ID to track messages
+  string origin_server_id = 7; // Server that originated the message
+  repeated string replicated_to = 8; // List of servers this message has been replicated to
+}
+
+// Response for peer-to-peer operations
+message PeerResponse {
+  bool success = 1;
+  string message = 2;
+}
+
 // The EventBus service definition
 service EventBus {
   // Publishes a message to subscribers
@@ -50,5 +70,7 @@ service EventBus {
   
   // Subscribes to topics
   rpc Subscribe(SubscriptionRequest) returns (stream Event) {}
+  
+  // Server-to-server message replication
+  rpc ReplicateEvent(PeerMessage) returns (PeerResponse) {}
 }
-
