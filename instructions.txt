@@ -1,0 +1,19 @@
+Write a service in golang that provides a simple publish and subscribe mechanism.  A client should be able to connect to the service registering for one or more topics.  The client should be able to publish a message that consists of the following parts:
+
+topic
+sub_topic
+client_id
+message
+timestamp
+
+the topic, sub_topic, message and client_id should be simple strings.
+
+The server on receiving this message should send this message to all other clients except for the one publishing it.  Only clients that have registered to consume that topic should be sent the message.
+
+The protocol should use protocol buffers.
+
+Create also a client library in java.  
+
+The service should include tests, a README.md explaining the implementation, its build and operation instructions.  Include also a docker script to create a docker container for the server. 
+
+

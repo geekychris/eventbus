@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package eventbus;
+
+option java_multiple_files = true;
+option java_package = "com.eventbus.client";
+option java_outer_classname = "EventBusProto";
+option go_package = "github.com/eventbus/proto";
+
+// Message type for publishing messages
+message PublishMessage {
+  string topic = 1;
+  string sub_topic = 2;
+  string client_id = 3;
+  string message = 4;
+  int64 timestamp = 5;
+}
+
+// Message type for subscription requests
+message SubscriptionRequest {
+  string client_id = 1;
+  repeated string topics = 2;
+}
+
+// Response message for subscriptions
+message SubscriptionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Response message for publish operations
+message PublishResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Event message delivered to subscribers
+message Event {
+  string topic = 1;
+  string sub_topic = 2;
+  string client_id = 3;
+  string message = 4;
+  int64 timestamp = 5;
+}
+
+// The EventBus service definition
+service EventBus {
+  // Publishes a message to subscribers
+  rpc Publish(PublishMessage) returns (PublishResponse) {}
+  
+  // Subscribes to topics
+  rpc Subscribe(SubscriptionRequest) returns (stream Event) {}
+}
+
