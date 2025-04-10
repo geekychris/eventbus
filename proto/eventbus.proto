@@ -2,75 +2,91 @@ syntax = "proto3";
 
 package eventbus;
 
-option java_multiple_files = true;
-option java_package = "com.eventbus.client";
-option java_outer_classname = "EventBusProto";
-option go_package = "github.com/eventbus/proto";
+option go_package = "./proto";
 
-// Message type for publishing messages
-message PublishMessage {
-  string topic = 1;
-  string sub_topic = 2;
-  string client_id = 3;
-  string message = 4;
-  int64 timestamp = 5;
-  string message_id = 6; // Unique ID for tracking messages across servers
-  string origin_server_id = 7; // ID of originating server
-}
-
-// Message type for subscription requests
-message SubscriptionRequest {
-  string client_id = 1;
-  repeated string topics = 2;
-}
-
-// Response message for subscriptions
-message SubscriptionResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-// Response message for publish operations
-message PublishResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-// Event message delivered to subscribers
+// Event message for pub/sub
 message Event {
-  string topic = 1;
-  string sub_topic = 2;
-  string client_id = 3;
-  string message = 4;
-  int64 timestamp = 5;
+    string topic = 1;
+    string sub_topic = 2;
+    string client_id = 3;
+    bytes message = 4;
+    int64 timestamp = 5;
 }
 
-// Message for server-to-server communication
+// Message for publishing events
+message PublishMessage {
+    string topic = 1;
+    string sub_topic = 2;
+    string client_id = 3;
+    bytes message = 4;
+    int64 timestamp = 5;
+    string message_id = 6;
+    string origin_server_id = 7;
+}
+
+// Response to publish request
+message PublishResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// Subscription request message
+message SubscriptionRequest {
+    string client_id = 1;
+    repeated string topics = 2;
+}
+
+// Message for server-to-server replication
 message PeerMessage {
-  string topic = 1;
-  string sub_topic = 2;
-  string client_id = 3;
-  string message = 4;
-  int64 timestamp = 5;
-  string message_id = 6; // Unique ID to track messages
-  string origin_server_id = 7; // Server that originated the message
-  repeated string replicated_to = 8; // List of servers this message has been replicated to
+    string topic = 1;
+    string sub_topic = 2;
+    string client_id = 3;
+    bytes message = 4;
+    int64 timestamp = 5;
+    string message_id = 6;
+    string origin_server_id = 7;
 }
 
-// Response for peer-to-peer operations
+// Response to peer replication
 message PeerResponse {
-  bool success = 1;
-  string message = 2;
+    bool success = 1;
+    string message = 2;
 }
+
+// Metrics message definitions
+message PeerMetricsInfo {
+    string address = 1;
+    string state = 2;
+    int64 connected_duration_seconds = 3;
+    int64 last_connected_timestamp = 4;
+    int64 reconnect_attempts = 5;
+    int64 events_sent = 6;
+    int64 events_dropped = 7;
+    int32 queue_size = 8;
+}
+
+message ServiceMetricsInfo {
+    string instance_id = 1;
+    int64 uptime_seconds = 2;
+    int64 start_timestamp = 3;
+    int32 subscriber_count = 4;
+    int64 processed_events = 5;
+    repeated PeerMetricsInfo peers = 6;
+}
+
+message MetricsRequest {}
 
 // The EventBus service definition
 service EventBus {
-  // Publishes a message to subscribers
-  rpc Publish(PublishMessage) returns (PublishResponse) {}
-  
-  // Subscribes to topics
-  rpc Subscribe(SubscriptionRequest) returns (stream Event) {}
-  
-  // Server-to-server message replication
-  rpc ReplicateEvent(PeerMessage) returns (PeerResponse) {}
+    // Publishes a message to a topic
+    rpc Publish(PublishMessage) returns (PublishResponse) {}
+    
+    // Subscribes to topics
+    rpc Subscribe(SubscriptionRequest) returns (stream Event) {}
+    
+    // Server-to-server message replication
+    rpc ReplicateEvent(PeerMessage) returns (PeerResponse) {}
+    
+    // Get service metrics
+    rpc GetMetrics(MetricsRequest) returns (ServiceMetricsInfo) {}
 }

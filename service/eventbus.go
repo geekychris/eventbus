@@ -1,3 +1,23 @@
+// Copyright (c) 2025 Chris Collins chris@hitorro.com
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 package service
 
 import (
@@ -7,12 +27,12 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pb "github.com/eventbus/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -22,21 +42,16 @@ type subscriber struct {
 	finished chan<- bool
 }
 
-type peerConnection struct {
-	address string
-	client  pb.EventBusClient
-	conn    *grpc.ClientConn
-}
-
 type EventBusServer struct {
 	pb.UnimplementedEventBusServer
 	mu              sync.RWMutex
 	subscribers     map[string]*subscriber
 	instanceID      string
-	peersMu         sync.RWMutex
-	peers           map[string]*peerConnection
+	peerManager     *PeerManager
 	processedMsgs   map[string]bool
 	processedMsgsMu sync.RWMutex
+	startTime       time.Time
+	processedEvents int64
 }
 
 // ServerConfig holds configuration for the EventBus server
@@ -51,14 +66,16 @@ func NewEventBusServer(config *ServerConfig) *EventBusServer {
 	server := &EventBusServer{
 		subscribers:   make(map[string]*subscriber),
 		processedMsgs: make(map[string]bool),
-		peers:         make(map[string]*peerConnection),
+		startTime:     time.Now(),
 	}
 
 	if config != nil {
 		server.instanceID = config.InstanceID
-		// Connect to peers
+		server.peerManager = NewPeerManager(config.InstanceID)
+
+		// Add peers to the peer manager
 		for _, addr := range config.PeerAddresses {
-			go server.connectToPeer(addr)
+			server.peerManager.AddPeer(addr)
 		}
 	}
 
@@ -74,47 +91,10 @@ func generateMessageID() string {
 	return hex.EncodeToString(bytes)
 }
 
-// Connect to a peer server
-func (s *EventBusServer) connectToPeer(address string) error {
-	// Don't connect to self
-	if address == s.instanceID {
-		return nil
-	}
-
-	// Establish connection with peer
-	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Printf("Failed to connect to peer %s: %v", address, err)
-		return err
-	}
-
-	client := pb.NewEventBusClient(conn)
-
-	// Create peer connection
-	peer := &peerConnection{
-		address: address,
-		client:  client,
-		conn:    conn,
-	}
-
-	// Add to peers map
-	s.peersMu.Lock()
-	s.peers[address] = peer
-	s.peersMu.Unlock()
-
-	log.Printf("Connected to peer server at %s", address)
-	return nil
-}
-
 // Shutdown closes all peer connections
 func (s *EventBusServer) Shutdown() {
-	s.peersMu.Lock()
-	defer s.peersMu.Unlock()
-
-	for _, peer := range s.peers {
-		if peer.conn != nil {
-			peer.conn.Close()
-		}
+	if s.peerManager != nil {
+		s.peerManager.Shutdown()
 	}
 }
 
@@ -218,6 +198,9 @@ func (s *EventBusServer) Publish(ctx context.Context, msg *pb.PublishMessage) (*
 		go s.replicateMessageToPeers(msg)
 	}
 
+	// Increment processed events counter
+	atomic.AddInt64(&s.processedEvents, 1)
+
 	return &pb.PublishResponse{Success: true}, nil
 }
 
@@ -234,21 +217,9 @@ func (s *EventBusServer) replicateMessageToPeers(msg *pb.PublishMessage) {
 		OriginServerId: msg.OriginServerId,
 	}
 
-	// Send to all peers
-	s.peersMu.RLock()
-	defer s.peersMu.RUnlock()
-
-	for addr, peer := range s.peers {
-		go func(address string, p *peerConnection) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			_, err := p.client.ReplicateEvent(ctx, peerMsg)
-			if err != nil {
-				log.Printf("Failed to replicate message to peer %s: %v", address, err)
-				// TODO: Handle reconnection logic here
-			}
-		}(addr, peer)
+	// Use peer manager to replicate the event
+	if s.peerManager != nil {
+		s.peerManager.ReplicateEvent(peerMsg)
 	}
 }
 
@@ -278,3 +249,58 @@ func (s *EventBusServer) ReplicateEvent(ctx context.Context, msg *pb.PeerMessage
 
 	return &pb.PeerResponse{Success: true}, nil
 }
+
+// GetMetrics returns comprehensive metrics about the server and peers
+func (s *EventBusServer) GetMetrics() ServiceMetrics {
+	s.mu.RLock()
+	subCount := len(s.subscribers)
+	s.mu.RUnlock()
+
+	metrics := ServiceMetrics{
+		InstanceID:      s.instanceID,
+		Uptime:          time.Since(s.startTime),
+		StartTime:       s.startTime,
+		SubscriberCount: subCount,
+		ProcessedEvents: atomic.LoadInt64(&s.processedEvents),
+	}
+
+	if s.peerManager != nil {
+		metrics.Peers = s.peerManager.GetMetrics()
+	}
+
+	return metrics
+}
+
+// Add GetMetrics implementation
+//func (s *EventBusServer) GetMetrics(ctx context.Context, req *pb.MetricsRequest) (*pb.ServiceMetricsInfo, error) {
+//    metrics := s.GetMetrics()
+//
+//    peerMetrics := make([]*pb.PeerMetricsInfo, 0, len(metrics.Peers))
+//    for _, peer := range metrics.Peers {
+//        // Handle zero time for LastConnected
+//        var lastConnectedTimestamp int64
+//        if !peer.LastConnected.IsZero() {
+//            lastConnectedTimestamp = peer.LastConnected.Unix()
+//        }
+//
+//        peerMetrics = append(peerMetrics, &pb.PeerMetricsInfo{
+//            Address:                  peer.Address,
+//            State:                   peer.State,
+//            ConnectedDurationSeconds: int64(peer.ConnectedDuration.Seconds()),
+//            LastConnectedTimestamp:   lastConnectedTimestamp,
+//            ReconnectAttempts:       peer.ReconnectAttempts,
+//            EventsSent:              peer.EventsSent,
+//            EventsDropped:           peer.EventsDropped,
+//            QueueSize:              int32(peer.QueueSize),
+//        })
+//    }
+//
+//    return &pb.ServiceMetricsInfo{
+//        InstanceId:      metrics.InstanceID,
+//        UptimeSeconds:   int64(metrics.Uptime.Seconds()),
+//        StartTimestamp:  metrics.StartTime.Unix(),
+//        SubscriberCount: int32(metrics.SubscriberCount),
+//        ProcessedEvents: metrics.ProcessedEvents,
+//        Peers:           peerMetrics,
+//    }, nil
+//}

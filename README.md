@@ -1,3 +1,85 @@
+## Monitoring
+
+The EventBus service provides built-in monitoring capabilities through its metrics API. You can monitor individual nodes and the overall cluster health.
+
+### Metrics API
+
+Each EventBus instance exposes a gRPC metrics endpoint that provides detailed information about:
+- Service status (uptime, processed events, subscribers)
+- Peer connections and health
+- Event replication statistics
+- Performance metrics
+
+#### Using the Metrics API
+
+You can query metrics using any gRPC client. Here's an example using grpcurl:
+
+```bash
+grpcurl -plaintext localhost:50051 eventbus.EventBus/GetMetrics
+```
+
+Example output:
+```json
+{
+  "instance_id": "instance1",
+  "uptime_seconds": 3600,
+  "start_timestamp": 1679380800,
+  "subscriber_count": 5,
+  "processed_events": 1000,
+  "peers": [
+    {
+      "address": "localhost:50052",
+      "state": "Connected",
+      "connected_duration_seconds": 3600,
+      "events_sent": 500,
+      "events_dropped": 0,
+      "queue_size": 0
+    }
+  ]
+}
+```
+
+### Monitoring Multiple Instances
+
+To monitor the entire cluster, collect metrics from all instances:
+
+```bash
+# Monitor all instances in a 3-node cluster
+for port in 50051 50052 50053; do
+  echo "Instance on port $port:"
+  grpcurl -plaintext localhost:$port eventbus.EventBus/GetMetrics
+done
+```
+
+### Metrics Description
+
+Service Metrics:
+- `instance_id`: Unique identifier of the service instance
+- `uptime_seconds`: Time since service start
+- `start_timestamp`: Unix timestamp of service start
+- `subscriber_count`: Number of active subscribers
+- `processed_events`: Total number of events processed
+
+Peer Metrics:
+- `address`: Address of the peer instance
+- `state`: Connection state (Connected, Disconnected, Connecting, Unhealthy)
+- `connected_duration_seconds`: Time connected to peer
+- `last_connected_timestamp`: Last successful connection time
+- `reconnect_attempts`: Number of reconnection attempts
+- `events_sent`: Successfully replicated events
+- `events_dropped`: Failed replication attempts
+- `queue_size`: Current event queue size
+
+### Health Monitoring
+
+The metrics API enables monitoring for:
+- Cluster connectivity issues
+- Replication problems
+- Performance bottlenecks
+- Node failures
+
+For production deployments, consider integrating these metrics with your monitoring system (e.g., Prometheus) for alerting and visualization.
+
 # Event Bus Service
 
 This repository contains a gRPC-based event bus service implementation.
