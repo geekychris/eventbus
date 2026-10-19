@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Eventbus logo" width="180">
+</p>
+
 ## Monitoring
 
 The EventBus service provides built-in monitoring capabilities through its metrics API. You can monitor individual nodes and the overall cluster health.
